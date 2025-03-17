@@ -19,7 +19,7 @@ Le projet consiste en l'installation, la configuration et la sécurisation d'un 
 1. [Prérequis](#prérequis)
 2. [Étapes principales du projet](#etapes-principales-du-projet)
    - [Installation du serveur](#installation-du-serveur)
-   - [Configuration réseau](#configuration-reseau)
+   - [Configuration réseau](#configuration-réseau)
    - [Mise en place du serveur LEMP](#mise-en-place-du-serveur-lemp)
    - [Partage réseau et sauvegardes](#partage-reseau-et-sauvegardes)
    - [Sécurisation et scripting](#securisation-et-scripting)
