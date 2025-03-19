@@ -62,13 +62,14 @@ La machine est prête à être lancée.
 
 Vient ensuite l'installation d'Ubuntu avec le RAID 5 et LVM lors du premier lancement de la machine.
 
+
 <details>
   
-<summary>### Utilité de cette configuration avant déploiement</summary>
+<summary>Utilité de cette configuration avant déploiement</summary>
 
 - RAID 5 apporte la tolérance aux pannes disque et la continuité de service (comme pour le réseau qu'on va configurer ensuite, l'idée est la fiabilité).
 - LVM permet la flexibilité pour redimensionner ou ajouter de l’espace disque si le serveur doit accueillir plus de bases de données ou de fichiers partagés plus tard.
-- 
+
 </details>
 
 
