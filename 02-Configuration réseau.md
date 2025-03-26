@@ -322,20 +322,197 @@ On créer une classe « enfant » sous la classe principale.
 - ceil 100mbit : plafond de 100 Mbps.
 
 
-A cette classe, on va ajouter un filtre pour cibler l’IP et le port de destination et rediriger vers cette classe
-bash
-Copier
-Modifier
-sudo tc filter add dev bond0 protocol ip parent 1:0 prio 1 u32 match ip dst 192.168.50.20/32 flowid 1:10
-tc filter add dev bond0 : on ajoute un filtre sur bond0.
+A cette classe, on va ajouter un filtre pour cibler l’IP et le port de destination et rediriger ces paquets vers la classe limitée fraichement créée.
 
-protocol ip : ce filtre concerne les paquets IP.
+On utilise donc `tc` avec `u32` pour cibler le port rsync (873).
 
-parent 1:0 : on place le filtre au niveau racine (niveau 1:0).
+Element important à prendre en compte : le port TCP/UDP est contenu dans les en-têtes du paquet, il faut préciser dans le filtre l’offset correct. * L’offset 20 (0x14) correspond à la position où se trouve le port dans l’en-tête IP+TCP.
 
-prio 1 : priorité du filtre (1 = priorité haute, il sera vérifié avant les autres).
 
-u32 : type de filtre très flexible qui permet de faire des matchs binaires.
+<details>
+  
+<summary>Explication détaillée de cette partie</summary>
 
-match ip dst 192.168.50.20/32 : ici, on cible tout trafic à destination de l’IP 192.168.50.20.
+(explications détaillées par chatGPT)
+
+---
+
+#### **Contexte : pourquoi parle-t-on d’offset et d’en-tête ?**  
+Quand un paquet IP circule sur le réseau, il est composé de plusieurs couches :  
+
+1. **En-tête IP** : contient l’adresse source, l’adresse de destination, le protocole (TCP, UDP…).  
+2. **En-tête TCP (ou UDP)** : contient notamment les ports source et destination.  
+3. **Les données** : c’est le contenu transporté.  
+
+Le port de destination est dans **l’en-tête TCP**, qui arrive **juste après l’en-tête IP**.  
+
+---
+
+####  **Pourquoi faut-il parler d’offset ?**  
+Quand tu crées un filtre `tc u32`, il fonctionne au niveau des paquets bruts.  
+Il lit directement les octets du paquet.  
+Donc, pour cibler un champ particulier (comme un port), il faut connaître :  
+- Où commence ce champ dans le paquet (l’offset)  
+- Sa taille (ici, 2 octets pour un port TCP ou UDP)  
+
+---
+
+####  **Structure simplifiée d’un paquet IPv4 + TCP**  
+| Partie                   | Taille (octets) |
+|--------------------------|-----------------|
+| En-tête IP               | En général 20   |
+| En-tête TCP              | En général 20   |
+| Données                  | variable        |
+
+>  Attention : l’en-tête IP peut avoir une taille variable si des options sont présentes, mais dans **99% des cas sans options**, il fait 20 octets.
+
+---
+
+####  **Position du port TCP de destination**  
+- L’en-tête IP (20 octets) est suivi de l’en-tête TCP.  
+- L’en-tête TCP commence donc **à l’offset 20 (0x14)** dans le paquet.  
+- Le premier champ de l’en-tête TCP est :  
+   - Port source (2 octets)  
+   - Juste après : port destination (2 octets)  
+
+Donc :  
+- Port source = octets 20-21 (offset 20 à 21)  
+- **Port destination = octets 22-23 (offset 22 à 23)**  
+
+---
+
+####  **Mais dans la commande `tc filter u32`, comment ça marche ?**  
+Quand on écrit :  
+```bash
+tc filter add dev bond0 protocol ip parent 1:0 prio 1 u32 \
+match ip protocol 6 0xff \
+match ip dport 873 0xffff \
+flowid 1:10
+```
+- **`match ip protocol 6 0xff`** : on filtre uniquement les paquets TCP (le protocole TCP est identifié par le numéro 6 dans l’en-tête IP).  
+- **`match ip dport 873 0xffff`** : c’est une commande simplifiée fournie par `tc` pour ne pas te faire calculer les offsets à la main — elle indique "je veux cibler le port de destination TCP/UDP 873".  
+- En réalité, `match ip dport` est un raccourci qui automatise ce calcul et va directement chercher les octets 22-23 dans le paquet.  
+
+---
+
+####  Si tu voulais tout faire "à la main" :  
+Tu pourrais écrire un filtre brut `u32` avec offset, par exemple :  
+```bash
+tc filter add dev bond0 protocol ip parent 1:0 prio 1 u32 \
+match ip protocol 6 0xff \
+match u16 0x0369 0xffff at 22 \
+flowid 1:10
+```
+- **`match u16 0x0369 0xffff at 22`** : ça veut dire :  
+  - Cherche la valeur hexadécimale 0x0369 (873 en hexadécimal) sur 2 octets (`u16`) à partir du 22e octet du paquet.  
+
+Mais heureusement, la syntaxe `match ip dport` simplifie ça en se basant sur les standards des paquets IP + TCP/UDP sans avoir à faire le calcul toi-même.  
+
+---
+
+####  En résumé :
+| Ce que tu veux filtrer        | Où ça se trouve dans le paquet           | Comment tc le comprend                   |
+|--------------------------------|------------------------------------------|------------------------------------------|
+| Le port TCP de destination     | Dans les octets 22-23 (après en-tête IP) | Grâce à `match ip dport` ou avec un offset `at 22` |
+
+---
+
+</details>
+
+
+```
+tc filter add dev bond0 protocol ip parent 1:0 prio 1 u32 \
+match ip protocol 6 0xff \
+match ip dport 873 0xffff \
+flowid 1:10
+```
+
+- protocol ip : pour paquets IP.
+- prio 1 : priorité élevée.
+- match ip protocol 6 0xff : on cible le protocole TCP (6 dans la table des protocoles IP).
+- match ip dport 873 0xffff : on cible le port de destination 873.
+- flowid 1:10 : on dirige ces paquets vers la classe limitée à 100 Mbps.
+
+
+### Vérification de la configuration
+
+
+On peut lancer cette série de tests afin de s'assurer de la conformité de notre configuration :
+
+---
+
+La commande qui affiche les files d’attente actives avec leurs statistiques (packets, drops) :
+
+```
+tc -s qdisc show dev bond0
+```
+
+<details>
+  
+<summary>Résultats sur ma machine :</summary>
+
+```
+qdisc htb 1: root refcnt 17 r2q 10 default 0x20 direct_packets_stat 2 direct_qlen 1000
+ Sent 140 bytes 2 pkt (dropped 0, overlimits 0 requeues 0)
+ backlog 0b 0p requeues 0
+
+
+```
+
+</details>
+
+---
+
+La commande qui affiche les classes HTB configurées et leur utilisation (volume, débit) :
+
+```
+tc -s class show dev bond0
+```
+
+<details>
+  
+<summary>Résultats sur ma machine :</summary>
+
+```
+class htb 1:10 parent 1:1 prio 0 rate 100Mbit ceil 100Mbit burst 1600b cburst 1600b
+ Sent 0 bytes 0 pkt (dropped 0, overlimits 0 requeues 0)
+ backlog 0b 0p requeues 0
+ lended: 0 borrowed: 0 giants: 0
+ tokens: 2000 ctokens: 2000
+
+class htb 1:1 root rate 1Gbit ceil 1Gbit burst 1375b cburst 1375b
+ Sent 0 bytes 0 pkt (dropped 0, overlimits 0 requeues 0)
+ backlog 0b 0p requeues 0
+ lended: 0 borrowed: 0 giants: 0
+ tokens: 187 ctokens: 187
+```
+
+</details>
+
+---
+
+La commande qui liste les filtres appliqués pour diriger le trafic vers les classes :
+
+```
+tc filter show dev bond0
+```
+
+
+<details>
+  
+<summary>Résultats sur ma machine :</summary>
+
+```
+filter parent 1: protocol ip pref 1 u32 chain 0
+filter parent 1: protocol ip pref 1 u32 chain 0 fh 800: ht divisor 1
+filter parent 1: protocol ip pref 1 u32 chain 0 fh 800::800 order 2048 key ht 800 bkt 0 flowid 1:10 not_in_hw
+  match 00060000/00ff0000 at 8
+  match 00000369/0000ffff at 20
+```
+
+</details>
+
+---
+
+
 
