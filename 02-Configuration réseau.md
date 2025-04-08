@@ -4,6 +4,7 @@ On se concentre ici sur la configuration du réseau sur notre serveur ubuntu fra
 
 1. [Nommer les intefaces réseaux](#nommer-les-intefaces-réseaux)
 2. [Aggrégation des liens](#aggrégation-des-liens)
+3. [QoS avec une limite de bande passante](#QoS-avec-une-limite-de-bande-passante)
 
 
 ---
