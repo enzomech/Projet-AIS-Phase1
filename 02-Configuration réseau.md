@@ -515,4 +515,77 @@ filter parent 1: protocol ip pref 1 u32 chain 0 fh 800::800 order 2048 key ht 80
 ---
 
 
+### Persistance de la configuration
 
+
+On remarquera que la configuration tc n’est pas persistante après un redémarrage. Mais après avoir testé et validé la configuration manuelle de tc, on peut en faire un script, qui tournera grace à un service au démarrage de la machine, cela s'adapte bien à notre configuration, et on peut maîtriser les paramètres de celle-ci.
+
+Voici le script que j'ai décidé de créer reprenant ma configuration :  ```/etc/tc-qos-bond0.sh```
+
+```
+#!/bin/bash
+
+# Nettoyage
+tc qdisc del dev bond0 root || true
+
+# Création HTB
+tc qdisc add dev bond0 root handle 1: htb default 20
+tc class add dev bond0 parent 1: classid 1:1 htb rate 1gbit ceil 1gbit
+tc class add dev bond0 parent 1:1 classid 1:10 htb rate 100mbit ceil 100mbit
+
+# Filtre vers port 873 (TCP)
+tc filter add dev bond0 protocol ip parent 1:0 prio 1 u32 \
+match ip protocol 6 0xff \
+match ip dport 873 0xffff \
+flowid 1:10
+```
+
+Il ne faut pas oublier d'ajouter les droits d'éxécution pour le script :
+
+```sudo chmod +x /etc/tc-qos-bond0.sh```
+
+
+Puis on créer un service dans systemd qui fait tourner ce script à chaque lancement après avoir initialisé le network :  ```/etc/systemd/system/tc-qos-bond0.service```
+
+```
+[Unit]
+Description=TC QoS rules for bond0
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/etc/tc-qos-bond0.sh
+RemainAfterExit=true
+
+[Install]
+WantedBy=multi-user.target
+
+```
+
+
+On active et vérifie notre nouveau service :
+
+```
+sudo systemctl daemon-reexec
+sudo systemctl enable tc-qos-bond0.service
+sudo systemctl start tc-qos-bond0.service
+sudo systemctl status tc-qos-bond0.service
+```
+
+Puis comme dernier test, on redémarre la machine et affiche notre bond0 :
+
+```
+sudo tc -s qdisc show dev bond0
+```
+
+<details>
+  
+<summary>Résultats sur ma machine :</summary>
+
+```
+qdisc htb 1: root refcnt 17 r2q 10 default 0x20 direct_packets_stat 2 direct_qlen 1000
+ Sent 140 bytes 2 pkt (dropped 0, overlimits 0 requeues 0)
+ backlog 0b 0p requeues 0
+```
+
+</details>
