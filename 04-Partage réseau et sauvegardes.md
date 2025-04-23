@@ -46,6 +46,15 @@ Et on va ajouter un partage dans ```/etc/samba/smb.conf``` avec cette configurat
    directory mask = 0777
 ```
 
+On redémarre le service Samba
+
+```
+sudo systemctl restart smbd
+```
+
+Et on peut tester en rentrant simplement ```\\192.168.150.10\shared``` dans l'explorateur des fichiers windows de notre hôte.
+
+
 
 ## Script de sauvegarde
 
