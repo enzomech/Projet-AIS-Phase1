@@ -590,3 +590,22 @@ qdisc htb 1: root refcnt 17 r2q 10 default 0x20 direct_packets_stat 2 direct_qle
 ```
 
 </details>
+
+### Debuggage
+
+J'ai remarqué en tentant un update de mon système que je n'avais plus accès à internet car la gateway par défaut n'était plus spécifiée et que je n'avais plus de serveur DNS enregistré non plus, j'ai donc remis cela en place :
+
+```
+sudo ip route add default via 192.168.150.2
+```
+
+Après avoir renseignée ma gateway sur mon NAT VMware, je modifie également le fichier ```/etc/resolv.conf``` spécifiant le DNS (en l'occurence de google) ```nameserver 8.8.8.8```
+
+On test finalement la gateway :
+
+```
+ip route
+default via 192.168.150.2 dev public0
+```
+
+Et on ```ping google.com``` pour vérifier l'accès à internet et le DNS.
