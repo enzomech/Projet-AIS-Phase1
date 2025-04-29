@@ -58,16 +58,81 @@ Et on peut tester en rentrant simplement ```\\192.168.150.10\shared``` dans l'ex
 
 ## Script de sauvegarde
 
+On commence par créer le répertoire de backup et on y accorde les propriétaires et droits appropriés.
 
+```
+sudo mkdir -p /backup
+sudo chown root:root /backup
+sudo chmod 700 /backup
+```
+
+
+Ensuite on créer le script ```/usr/local/bin/backup.sh``` avec le texte suivant :
+
+```
+#!/bin/bash
+
+DATE=$(date +'%Y-%m-%d_%H-%M')
+DEST="/backup/backup_$DATE"
+mkdir -p "$DEST"
+
+# Sauvegarde des fichiers web
+tar czf "$DEST/web.tar.gz" /web
+
+# Sauvegarde des bases MariaDB
+mysqldump -u root --all-databases > "$DEST/db.sql"
+
+# Nettoyage des permissions
+chmod -R 600 "$DEST"/*
+```
 
 
 ## Synchronisation automatique
 
+Pour la synchronisation automatique, on va simplement ajouter une ligne de commande utilisant rsync à la fin du script de sauvegarde, pointant vers le dossier partagé, dans un nouveau dossier renseignant la dernière backup.
 
-
+```
+rsync -a --delete "$DEST/" /shared/latest_backup/
+mkdir -p /shared/latest_backup
+```
 
 ## Rétention des sauvegardes
 
+Les sauvegardes seront classées dans ces répertoires pour répondre à une politique de sauvegarde adaptée :
 
+  - Derniers 2 jours ```/backup/daily```
+  - Dernières 2 semaines ```/backup/weekly```
+  - Derniers 5 mois ```/backup/monthly```
 
+On créer donc les répertoires :
 
+```sudo mkdir -p /backup/daily /backup/weekly /backup/monthly```
+
+Un script de rotation supprimera ensuite les fichiers trop anciens selon des critères précis, le voici ```/usr/local/bin/rotate_backups.sh``` :
+
+```
+#!/bin/bash
+
+# Répertoire de base des sauvegardes
+BASE_DIR="/backup"
+
+# Jours de conservation
+DAILY_KEEP=2
+WEEKLY_KEEP=2
+MONTHLY_KEEP=5
+
+# Supprimer les sauvegardes trop anciennes
+find "$BASE_DIR/daily" -type f -mtime +$((DAILY_KEEP - 1)) -delete
+find "$BASE_DIR/weekly" -type f -mtime +$((7 * WEEKLY_KEEP - 1)) -delete
+find "$BASE_DIR/monthly" -type f -mtime +$((30 * MONTHLY_KEEP - 1)) -delete
+```
+
+On donne ensuite les droits d'exécution pour ce script :
+
+```sudo chmod +x /usr/local/bin/rotate_backups.sh```
+
+Et pour automatiser l'exécution de ce script, on utilise une planification avec Cron, demandant de lancer le script tous les jours à 03h00, on y rajoute donc une entrée avec ```sudo crontab -e```
+
+Puis on y rajoute cette ligne : ```0 3 * * * /usr/local/bin/rotate_backups.sh```
+
+Les sauvegardes sont finalement configurées comme il faut.
